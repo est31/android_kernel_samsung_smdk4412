@@ -308,6 +308,7 @@ struct ieee80211_work {
 			u8 key[WLAN_KEY_LEN_WEP104];
 			u8 key_len, key_idx;
 			bool privacy;
+			u16 sae_trans, sae_status;
 		} probe_auth;
 		struct {
 			struct cfg80211_bss *bss;

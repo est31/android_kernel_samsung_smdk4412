@@ -2332,19 +2332,32 @@ int ieee80211_mgd_auth(struct ieee80211_sub_if_data *sdata,
 	case NL80211_AUTHTYPE_NETWORK_EAP:
 		auth_alg = WLAN_AUTH_LEAP;
 		break;
+	case NL80211_AUTHTYPE_SAE:
+		auth_alg = WLAN_AUTH_SAE;
+		break;
 	default:
 		return -EOPNOTSUPP;
 	}
 
-	wk = kzalloc(sizeof(*wk) + req->ie_len, GFP_KERNEL);
+	wk = kzalloc(sizeof(*wk) + req->sae_data_len + req->ie_len, GFP_KERNEL);
 	if (!wk)
 		return -ENOMEM;
 
 	memcpy(wk->filter_ta, req->bss->bssid, ETH_ALEN);
 
+	if (req->sae_data_len >= 4) {
+		wk *pos = (__le16 *) req->sae_data;
+		auth_data->sae_trans = le16_to_cpu(pos[0]);
+		wk->sae_status = le16_to_cpu(pos[1]);
+		memcpy(wk->ie, req->sae_data + 4,
+		       req->sae_data_len - 4);
+		wk->ie_len += req->sae_data_len - 4;
+	}
+
 	if (req->ie && req->ie_len) {
-		memcpy(wk->ie, req->ie, req->ie_len);
-		wk->ie_len = req->ie_len;
+		memcpy(&wk->ie[wk->ie_len],
+		       req->ie, req->ie_len);
+		wk->ie_len += req->ie_len;
 	}
 
 	if (req->key && req->key_len) {

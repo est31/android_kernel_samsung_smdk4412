@@ -482,7 +482,16 @@ ieee80211_authenticate(struct ieee80211_work *wk)
 	printk(KERN_DEBUG "%s: authenticate with %pM (try %d)\n",
 	       sdata->name, wk->filter_ta, wk->probe_auth.tries);
 
-	ieee80211_send_auth(sdata, 1, wk->probe_auth.algorithm, 0, wk->ie,
+	u16 trans = 1;
+	u16 status = 0;
+
+	if (wk->probe_auth.algorithm == WLAN_AUTH_SAE) {
+		trans = wk->probe_auth.sae_trans;
+		status = wk->probe_auth.sae_status;
+		wk->probe_auth.transaction = trans;
+	}
+
+	ieee80211_send_auth(sdata, trans, wk->probe_auth.algorithm, status, wk->ie,
 			    wk->ie_len, wk->filter_ta, NULL, 0, 0);
 	wk->probe_auth.transaction = 2;
 
@@ -628,6 +637,7 @@ ieee80211_rx_mgmt_auth(struct ieee80211_work *wk,
 	case WLAN_AUTH_OPEN:
 	case WLAN_AUTH_LEAP:
 	case WLAN_AUTH_FT:
+	case WLAN_AUTH_SAE:
 		break;
 	case WLAN_AUTH_SHARED_KEY:
 		if (wk->probe_auth.transaction != 4) {
@@ -640,6 +650,17 @@ ieee80211_rx_mgmt_auth(struct ieee80211_work *wk,
 		WARN_ON(1);
 		return WORK_ACT_NONE;
 	}
+
+#if 0
+	if (wk->probe_auth.algorithm == WLAN_AUTH_SAE &&
+	    wk->probe_auth.transaction != 2) {
+		/*
+		 * Report auth frame to user space for processing since another
+		 * round of Authentication frames is still needed.
+		 */
+		return RX_MGMT_CFG80211_RX_AUTH;
+	}
+#endif
 
 	printk(KERN_DEBUG "%s: authenticated\n", wk->sdata->name);
 	return WORK_ACT_DONE;
