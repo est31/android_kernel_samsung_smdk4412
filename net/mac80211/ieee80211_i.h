@@ -1340,7 +1340,7 @@ int ieee80211_add_pending_skbs_fn(struct ieee80211_local *local,
 				  void (*fn)(void *data), void *data);
 
 void ieee80211_send_auth(struct ieee80211_sub_if_data *sdata,
-			 u16 transaction, u16 auth_alg,
+			 u16 transaction, u16 auth_alg, u16 status,
 			 u8 *extra, size_t extra_len, const u8 *bssid,
 			 const u8 *key, u8 key_len, u8 key_idx);
 int ieee80211_build_preq_ies(struct ieee80211_local *local, u8 *buffer,

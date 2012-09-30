@@ -482,7 +482,7 @@ ieee80211_authenticate(struct ieee80211_work *wk)
 	printk(KERN_DEBUG "%s: authenticate with %pM (try %d)\n",
 	       sdata->name, wk->filter_ta, wk->probe_auth.tries);
 
-	ieee80211_send_auth(sdata, 1, wk->probe_auth.algorithm, wk->ie,
+	ieee80211_send_auth(sdata, 1, wk->probe_auth.algorithm, 0, wk->ie,
 			    wk->ie_len, wk->filter_ta, NULL, 0, 0);
 	wk->probe_auth.transaction = 2;
 
@@ -591,7 +591,7 @@ static void ieee80211_auth_challenge(struct ieee80211_work *wk,
 	ieee802_11_parse_elems(pos, len - (pos - (u8 *) mgmt), &elems);
 	if (!elems.challenge)
 		return;
-	ieee80211_send_auth(sdata, 3, wk->probe_auth.algorithm,
+	ieee80211_send_auth(sdata, 3, wk->probe_auth.algorithm, 0,
 			    elems.challenge - 2, elems.challenge_len + 2,
 			    wk->filter_ta, wk->probe_auth.key,
 			    wk->probe_auth.key_len, wk->probe_auth.key_idx);
