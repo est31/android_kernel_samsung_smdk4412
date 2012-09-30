@@ -23,7 +23,6 @@
 #include "nl80211.h"
 #include "reg.h"
 
-static bool nl80211_valid_auth_type(enum nl80211_auth_type auth_type);
 static int nl80211_crypto_settings(struct cfg80211_registered_device *rdev,
 				   struct genl_info *info,
 				   struct cfg80211_crypto_settings *settings,
@@ -206,6 +205,9 @@ static const struct nla_policy nl80211_policy[NL80211_ATTR_MAX+1] = {
 	[NL80211_ATTR_NOACK_MAP] = { .type = NLA_U16 },
 	[NL80211_ATTR_INACTIVITY_TIMEOUT] = { .type = NLA_U16 },
 	[NL80211_ATTR_BG_SCAN_PERIOD] = { .type = NLA_U16 },
+	[NL80211_ATTR_WDEV] = { .type = NLA_U64 },
+	[NL80211_ATTR_USER_REG_HINT_TYPE] = { .type = NLA_U32 },
+	[NL80211_ATTR_SAE_DATA] = { .type = NLA_BINARY, },
 };
 
 /* policy for the key attributes */
@@ -2142,6 +2144,30 @@ static int nl80211_parse_beacon(struct genl_info *info,
 	return 0;
 }
 
+static bool nl80211_valid_auth_type(struct cfg80211_registered_device *rdev,
+				    enum nl80211_auth_type auth_type,
+				    enum nl80211_commands cmd)
+{
+	if (auth_type > NL80211_AUTHTYPE_MAX)
+		return false;
+
+	switch (cmd) {
+	case NL80211_CMD_AUTHENTICATE:
+		if (!(rdev->wiphy.features & NL80211_FEATURE_SAE) &&
+		    auth_type == NL80211_AUTHTYPE_SAE)
+			return false;
+		return true;
+	case NL80211_CMD_CONNECT:
+	case NL80211_CMD_START_AP:
+		/* SAE not supported yet */
+		if (auth_type == NL80211_AUTHTYPE_SAE)
+			return false;
+		return true;
+	default:
+		return false;
+	}
+}
+
 static int nl80211_start_ap(struct sk_buff *skb, struct genl_info *info)
 {
 	struct cfg80211_registered_device *rdev = info->user_ptr[0];
@@ -2211,7 +2237,8 @@ static int nl80211_start_ap(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[NL80211_ATTR_AUTH_TYPE]) {
 		params.auth_type = nla_get_u32(
 			info->attrs[NL80211_ATTR_AUTH_TYPE]);
-		if (!nl80211_valid_auth_type(params.auth_type))
+		if (!nl80211_valid_auth_type(rdev, params.auth_type,
+					     NL80211_CMD_START_AP))
 			return -EINVAL;
 	} else
 		params.auth_type = NL80211_AUTHTYPE_AUTOMATIC;
@@ -4384,11 +4411,6 @@ static int nl80211_dump_survey(struct sk_buff *skb,
 	return res;
 }
 
-static bool nl80211_valid_auth_type(enum nl80211_auth_type auth_type)
-{
-	return auth_type <= NL80211_AUTHTYPE_MAX;
-}
-
 static bool nl80211_valid_wpa_versions(u32 wpa_versions)
 {
 	return !(wpa_versions & ~(NL80211_WPA_VERSION_1 |
@@ -4400,8 +4422,8 @@ static int nl80211_authenticate(struct sk_buff *skb, struct genl_info *info)
 	struct cfg80211_registered_device *rdev = info->user_ptr[0];
 	struct net_device *dev = info->user_ptr[1];
 	struct ieee80211_channel *chan;
-	const u8 *bssid, *ssid, *ie = NULL;
-	int err, ssid_len, ie_len = 0;
+	const u8 *bssid, *ssid, *ie = NULL, *sae_data = NULL;
+	int err, ssid_len, ie_len = 0, sae_data_len = 0;
 	enum nl80211_auth_type auth_type;
 	struct key_parse key;
 	bool local_state_change;
@@ -4477,8 +4499,22 @@ static int nl80211_authenticate(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	auth_type = nla_get_u32(info->attrs[NL80211_ATTR_AUTH_TYPE]);
-	if (!nl80211_valid_auth_type(auth_type))
+	if (!nl80211_valid_auth_type(rdev, auth_type, NL80211_CMD_AUTHENTICATE))
 		return -EINVAL;
+
+	if (auth_type == NL80211_AUTHTYPE_SAE &&
+	    !info->attrs[NL80211_ATTR_SAE_DATA])
+		return -EINVAL;
+
+	if (info->attrs[NL80211_ATTR_SAE_DATA]) {
+		if (auth_type != NL80211_AUTHTYPE_SAE)
+			return -EINVAL;
+		sae_data = nla_data(info->attrs[NL80211_ATTR_SAE_DATA]);
+		sae_data_len = nla_len(info->attrs[NL80211_ATTR_SAE_DATA]);
+		/* need to include at least Auth Transaction and Status Code */
+		if (sae_data_len < 4)
+			return -EINVAL;
+	}
 
 	local_state_change = !!info->attrs[NL80211_ATTR_LOCAL_STATE_CHANGE];
 
@@ -4491,7 +4527,8 @@ static int nl80211_authenticate(struct sk_buff *skb, struct genl_info *info)
 
 	return cfg80211_mlme_auth(rdev, dev, chan, auth_type, bssid,
 				  ssid, ssid_len, ie, ie_len,
-				  key.p.key, key.p.key_len, key.idx);
+				  key.p.key, key.p.key_len, key.idx,
+				  sae_data, sae_data_len);
 }
 
 static int nl80211_crypto_settings(struct cfg80211_registered_device *rdev,
@@ -5137,7 +5174,8 @@ static int nl80211_connect(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[NL80211_ATTR_AUTH_TYPE]) {
 		connect.auth_type =
 			nla_get_u32(info->attrs[NL80211_ATTR_AUTH_TYPE]);
-		if (!nl80211_valid_auth_type(connect.auth_type))
+		if (!nl80211_valid_auth_type(rdev, connect.auth_type,
+					     NL80211_CMD_CONNECT))
 			return -EINVAL;
 	} else
 		connect.auth_type = NL80211_AUTHTYPE_AUTOMATIC;
